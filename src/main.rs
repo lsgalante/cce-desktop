@@ -54,7 +54,7 @@ fn canvas_color(c: Option<&str>) -> Option<[f32; 4]> {
         "6" => [0.62, 0.48, 0.91, 1.0],
         hex => cce_ui::color::parse_hex_rgba(hex)?,
     };
-    Some(cce_ui::colors::to_linear(srgb))
+    Some(cce_ui::color::to_linear(srgb))
 }
 
 /// A laid-out card, and what it was laid out from.
@@ -665,7 +665,7 @@ impl GridApp {
             pc.border(r, (rad, rad, rad, rad), fill, c, (2.0 * s).max(1.0) as f32);
             if !label.is_empty() {
                 let size = (CARD_LABEL * 1.4 * s) as f32;
-                pc.text_with(label.clone(), r.x, r.y - size * 1.5, size, srgb_u8(cce_ui::colors::TEXT_FG), Some("sans-serif".into()), None);
+                pc.text_with(label.clone(), r.x, r.y - size * 1.5, size, srgb_u8(cce_ui::color::TEXT_FG), Some("sans-serif".into()), None);
             }
         }
         // Edges under the cards, as Obsidian draws them.
@@ -775,7 +775,7 @@ impl GridApp {
             let strip = Rect { x: r.x, y: r.y - size * 1.8, width: r.width, height: size * 1.8 };
             for frag in uncovered(strip, above) {
                 pc.clip(frag, |pc| {
-                    pc.text_with(name.clone(), r.x + rad * 0.5, r.y - size * 1.6, size, srgb_u8(cce_ui::colors::TEXT_DIM), Some("sans-serif".into()), None)
+                    pc.text_with(name.clone(), r.x + rad * 0.5, r.y - size * 1.6, size, srgb_u8(cce_ui::color::TEXT_DIM), Some("sans-serif".into()), None)
                 });
             }
         }
@@ -796,10 +796,10 @@ impl GridApp {
                         markdown::Draw::Text { y, color, .. } => Some((*y, *color)),
                         _ => None,
                     })
-                    .unwrap_or((0.0, cce_ui::colors::TEXT_FG));
+                    .unwrap_or((0.0, cce_ui::color::TEXT_FG));
                 // A text draw's colour is linear (it is painted through
                 // `srgb_u8`); a glyph is tinted in sRGB, as a text colour.
-                let color = cce_ui::colors::to_srgb(color);
+                let color = cce_ui::color::to_srgb(color);
                 let sf = s as f32;
                 let rect = Rect {
                     x: r.x + pad,
@@ -871,7 +871,7 @@ impl GridApp {
                 let strip = Rect { x: mid.0 - w / 2.0 - 4.0, y: mid.1 - size * 0.7, width: w + 8.0, height: size * 1.4 };
                 for frag in uncovered(strip, &cards) {
                     pc.clip(frag, |pc| {
-                        pc.text_with(label.to_string(), mid.0 - w / 2.0, mid.1 - size * 0.5, size, srgb_u8(cce_ui::colors::TEXT_FG), Some("sans-serif".into()), None)
+                        pc.text_with(label.to_string(), mid.0 - w / 2.0, mid.1 - size * 0.5, size, srgb_u8(cce_ui::color::TEXT_FG), Some("sans-serif".into()), None)
                     });
                 }
             }
@@ -943,7 +943,7 @@ fn link_glyph_room() -> f32 {
 }
 
 fn srgb_u8(linear: [f32; 4]) -> [u8; 3] {
-    let c = cce_ui::colors::to_srgb(linear);
+    let c = cce_ui::color::to_srgb(linear);
     [(c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8]
 }
 
