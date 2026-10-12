@@ -14,7 +14,7 @@ env_logger = "0.11"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-cce-vault = { git = "https://github.com/lsgalante/cce-vault.git", rev = "2d49246a84824dc10d99b04d6ea6472e8aa9f2e7" }
+cce-vault = { git = "https://github.com/lsgalante/cce-vault.git", rev = "9697535b1721d00efb6e0cfc88c2349072d5f5bd" }
 
 [dev-dependencies]
 tempfile = "3"
