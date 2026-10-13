@@ -7,8 +7,9 @@ pan/zoom loop: the compositor transforms the committed buffer per frame like
 any window content.
 
 The contract (cce window-management protocol, manager v6 / toplevel v4):
-`Application::grid() -> true` declares the role; `grid_patch` events say what
-to render; cce-ui's runner resizes, forwards to `Application::grid_patch`,
+`Application::grid_surface()` returning the app (its `GridSurface` impl)
+declares the role; `grid_patch` events say what to render; cce-ui's runner
+resizes, forwards to `GridSurface::grid_patch`,
 and acks so the next commit latches at the new anchor. The compositor keeps
 its own rect grid as the fallback whenever this client is absent or has not
 latched a patch yet, and its gap-colored backdrop always draws beneath as

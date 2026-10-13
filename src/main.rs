@@ -3,7 +3,7 @@
 //! The compositor world-anchors this surface to the virtual desktop and
 //! pans/zooms it per frame exactly like window content, so this app is never
 //! in the camera loop. It renders only when the compositor hands it a patch
-//! (`Application::grid_patch`): a virtual-desktop rectangle plus a
+//! (`GridSurface::grid_patch`): a virtual-desktop rectangle plus a
 //! px-per-virtual-unit scale. Everything here is therefore a pure function
 //! of (patch, style config) — no camera state, no timers.
 //!
@@ -1283,6 +1283,10 @@ impl GridApp {
 impl Application for GridApp {
     type Message = Message;
 
+    fn grid_surface(&mut self) -> Option<&mut dyn cce_ui::engine::GridSurface> {
+        Some(self)
+    }
+
     fn create(_sender: cce_ui::engine::AppSender<Self::Message>) -> Self {
         // The app keeps calloop's sender; `AppSender` converts into it.
         let _sender: calloop::channel::Sender<Self::Message> = _sender.into();
@@ -1354,14 +1358,6 @@ impl Application for GridApp {
             fullscreen: false,
             min_size: None,
         }
-    }
-
-    fn grid(&self) -> bool {
-        true
-    }
-
-    fn grid_patch(&mut self, x: f64, y: f64, w: f64, h: f64, scale: f64) {
-        self.patch = Some(Patch { x, y, w, h, scale });
     }
 
     fn update(&mut self, msg: Self::Message, needs_rebuild: &mut bool, _exit: &mut bool) {
@@ -1928,6 +1924,18 @@ impl Application for GridApp {
         Some(pc.finish())
     }
 
+    fn clear_color(&self) -> [f32; 4] {
+        // Patch edges the display list somehow misses read as rail surface,
+        // matching the compositor's always-on gap backdrop underneath.
+        style().gap_color
+    }
+}
+
+impl cce_ui::engine::GridSurface for GridApp {
+    fn grid_patch(&mut self, x: f64, y: f64, w: f64, h: f64, scale: f64) {
+        self.patch = Some(Patch { x, y, w, h, scale });
+    }
+
     /// The item rects touched since the last frame, as one surface rect —
     /// or None (everything) when the frame's other inputs moved: the patch,
     /// the surface size, or any style value the paint reads.
@@ -1973,12 +1981,6 @@ impl Application for GridApp {
                 ))
             }
         }
-    }
-
-    fn clear_color(&self) -> [f32; 4] {
-        // Patch edges the display list somehow misses read as rail surface,
-        // matching the compositor's always-on gap backdrop underneath.
-        style().gap_color
     }
 }
 
