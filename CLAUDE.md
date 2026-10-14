@@ -160,9 +160,10 @@ than an index because that menu blocks on its own thread, and the list can be
 reordered by a drag or grown by a drop while it is open.
 
 **Resize handles.** The compositor's `adjust` status topic (`on`/`off` as
-window-adjust mode — overview, or Super held — comes and goes) is the one
-thing this client subscribes to (`spawn_adjust_listener`, a plain std
-thread on the status socket, reconnecting with backoff): it never holds
+window-adjust mode — overview, or Super held — comes and goes) is how this
+client learns of it — one of three topics it subscribes to, with `selection`
+and `desktop-menu`, each through `spawn_topic_listener` (a plain std thread
+on the status socket per topic, reconnecting with backoff): it never holds
 keyboard focus, so it cannot read Super for itself. While on, the item
 UNDER THE POINTER (`hover_item` — the compositor shows its ring on the
 hovered window the same way) draws four corner discs (`handle_discs`) in
