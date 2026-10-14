@@ -341,10 +341,10 @@ fn decode_base64(s: &str) -> Option<Vec<u8>> {
 }
 
 /// Where a dropped image is kept. With the board in a vault: inside it, in
-/// the folder Obsidian puts new attachments for `board_file` in
-/// (`cce_vault::attachments`), so the picture syncs with the board and
-/// Obsidian shows the node instead of a missing file. Without a vault: the
-/// desktop folder, as before.
+/// the vault's attachment folder for `board_file` (`cce_vault::attachments`,
+/// set in `.cce/vault.kdl`), so the picture syncs with the board and other
+/// readers of the canvas show the node instead of a missing file. Without a
+/// vault: the desktop folder, as before.
 pub fn save_image(bytes: &[u8], name: &str, vault: Option<&Path>, board_file: &str) -> std::io::Result<PathBuf> {
     let Some(vault) = vault else { return save_to_desktop(bytes, name) };
     let name = safe_file_name(name).unwrap_or_else(|| "dropped-image".to_string());
@@ -543,9 +543,9 @@ mod tests {
         assert_eq!(p, v.join("pic.png"));
         // A clash is numbered the way Obsidian numbers it.
         assert_eq!(save_image(b"png", "pic.png", Some(v), "Desktop.canvas").unwrap(), v.join("pic 1.png"));
-        // Obsidian's attachment folder setting is followed.
-        std::fs::create_dir_all(v.join(".obsidian")).unwrap();
-        std::fs::write(v.join(".obsidian/app.json"), r#"{"attachmentFolderPath":"Attachments"}"#).unwrap();
+        // The vault's attachment folder setting is followed.
+        std::fs::create_dir_all(v.join(".cce")).unwrap();
+        std::fs::write(v.join(".cce/vault.kdl"), "attachments { folder \"Attachments\"; }\n").unwrap();
         assert_eq!(save_image(b"png", "pic.png", Some(v), "Desktop.canvas").unwrap(), v.join("Attachments/pic.png"));
     }
 
