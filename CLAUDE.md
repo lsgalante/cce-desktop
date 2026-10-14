@@ -1,6 +1,12 @@
 # CLAUDE.md
 
-`cce-grid` is the desktop-grid client of the cce desktop: a cce-ui app the
+`cce-desktop` is the desktop itself, everything on it the compositor does
+not draw: the grid, the board pinned to it, and the desktop's menus (the
+background menu and a window's own). It was `cce-grid` until 2026-10-14,
+when the menus moved in and the name stopped fitting; the app_id followed
+(`cce-desktop`; the compositor and cce-window-manager still accept
+`cce-grid` from an older binary). The GRID SURFACE keeps its name — that is
+the role this app's one window has, not the app. It is a cce-ui app the
 compositor world-anchors to the virtual desktop. It renders grid *patches* —
 virtual-rect regions at a compositor-chosen resolution — and is never in the
 pan/zoom loop: the compositor transforms the committed buffer per frame like
@@ -256,7 +262,7 @@ output-scale terms here.
 
 This directory is its own git repository whose `origin` is GitHub; a
 post-commit hook pushes each commit.
-`cce-grid.service` autostarts it with the session
+`cce-desktop.service` autostarts it with the session
 (WantedBy=cce-session.target); ccebuild installs both.
 
 Corner radii follow the DE-wide convention: the caller widens the nominal

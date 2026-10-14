@@ -1,4 +1,5 @@
-//! cce-grid — the desktop grid, drawn by cce-ui.
+//! cce-desktop — the desktop: the grid, the board pinned to it and the
+//! desktop's menus, drawn by cce-ui. (It was cce-grid until 2026-10-14.)
 //!
 //! The compositor world-anchors this surface to the virtual desktop and
 //! pans/zooms it per frame exactly like window content, so this app is never
@@ -1367,8 +1368,8 @@ impl Application for GridApp {
 
     fn settings(&self) -> WindowSettings {
         WindowSettings {
-            title: "Desktop Grid".to_string(),
-            app_id: "cce-grid".to_string(),
+            title: "Desktop".to_string(),
+            app_id: "cce-desktop".to_string(),
             // Nominal initial size; every real size comes from a patch.
             width: 640,
             height: 480,
