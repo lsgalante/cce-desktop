@@ -224,7 +224,7 @@ instead; keep the two menus' rows in step.
 A window's own menu — a right-click on its handle disc in adjust mode, or
 on the window in overview — comes the same way on the `window-menu` topic,
 the request naming the window clicked (`Kind::Window`): the window's name as
-a title, Window Mode, Minimize, Close Window. Its fallback is
+a title, Window Mode, Minimize, Restart App, Close Window. Its fallback is
 `cce-app-menu`; keep those rows in step too. A mode picked from it is not
 followed by a focus-window, since that press dropped no focus.
 
@@ -241,7 +241,10 @@ followed by a focus-window, since that press dropped no focus.
   and opens on the square that was clicked, as the script's did.
 - **Window Mode** is a page row (`set_row_page`, `show_page`); its picks
   `set-mode` the named window and hand it focus back, Minimize and Close
-  focus it first. Keys reach this client only while the menu is up:
+  focus it first. Restart App sends `restart-app <id>` (cce-fx 2ceb6564+:
+  the compositor closes every window of the process, waits for it to exit
+  and relaunches it), with a 20 s leash since the reply waits for all that;
+  a refusal (the app would not exit — a save prompt) is only logged. Keys reach this client only while the menu is up:
   Up/Down/Enter walk and run it, Right/Left turn the page; Escape and a
   click elsewhere are the runner's and the compositor's.
 - An item's menu (above) is the same machinery, `Kind::Item`: no fallback

@@ -84,6 +84,8 @@ pub enum Verb {
     /// (`GridApp::menu_action`).
     Item(&'static str),
     Minimize,
+    /// Restart the window's app (`restart-app`): close it, start it again.
+    Restart,
     Close,
     Reload,
     Logout,
@@ -132,6 +134,7 @@ impl DesktopMenu {
         let window_rows = [
             ("Window Mode", Row::Page),
             ("Minimize", Row::Run(Verb::Minimize)),
+            ("Restart App", Row::Run(Verb::Restart)),
             ("Close Window", Row::Run(Verb::Close)),
         ];
         let mut rows: Vec<(String, Row)> = Vec::new();
@@ -349,6 +352,20 @@ fn run(kind: Kind, verb: Verb, lx: f64, ly: f64, window: Option<MenuWindow>) {
             if let Some(w) = window {
                 send(Request::FocusWindow { query: w.id.to_string(), wait: false });
                 send(if verb == Verb::Minimize { Request::Minimize } else { Request::Close });
+            }
+        }
+        Verb::Restart => {
+            // By id, not focus: the compositor closes every window of that
+            // window's process, waits for it to exit and starts it again.
+            // The reply waits for all of that — up to 15 s when the app
+            // will not go (a save prompt), and then it says so.
+            if let Some(w) = window {
+                let line = format!("restart-app {}", w.id);
+                match ctl::send(&line, Some(std::time::Duration::from_secs(20))) {
+                    Ok(reply) if reply.starts_with("error") => log::warn!("[menu] {line}: {}", reply.trim_end()),
+                    Ok(reply) => log::info!("[menu] {line}: {}", reply.trim_end()),
+                    Err(e) => log::warn!("[menu] {line}: {e}"),
+                }
             }
         }
         // The caller runs an item's action itself (`DesktopMenu` docs).
