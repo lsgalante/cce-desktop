@@ -244,7 +244,8 @@ followed by a focus-window, since that press dropped no focus.
   focus it first. Restart App sends `restart-app <id>` (cce-fx 2ceb6564+:
   the compositor closes every window of the process, waits for it to exit
   and relaunches it), with a 20 s leash since the reply waits for all that;
-  a refusal (the app would not exit — a save prompt) is only logged. Keys reach this client only while the menu is up:
+  a refusal (the app would not exit — a save prompt), a missing reply or a
+  socket error posts a notification (`notify`, busctl → cce-notifier). Keys reach this client only while the menu is up:
   Up/Down/Enter walk and run it, Right/Left turn the page; Escape and a
   click elsewhere are the runner's and the compositor's.
 - An item's menu (above) is the same machinery, `Kind::Item`: no fallback

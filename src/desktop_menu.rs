@@ -281,6 +281,39 @@ fn send(req: Request) {
     }
 }
 
+/// Post a desktop notification (org.freedesktop.Notifications, served by
+/// cce-notifier) through `busctl`, as cce-data-editor does: no D-Bus crate
+/// for one call. Waits for the call — this runs on the menu's thread.
+fn notify(summary: &str, body: &str) {
+    let status = std::process::Command::new("busctl")
+        .args([
+            "--user",
+            "call",
+            // The expiry below is "-1", which busctl would read as an
+            // option without this.
+            "--",
+            "org.freedesktop.Notifications",
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+            "Notify",
+            "susssasa{sv}i",
+            "cce-desktop",
+            "0",
+            "",
+            summary,
+            body,
+            "0",
+            "0",
+            "-1",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    if !status.is_ok_and(|s| s.success()) {
+        log::warn!("[menu] notification not posted: {summary}: {body}");
+    }
+}
+
 /// Launch `command` (a shell line) through the compositor, so it runs in the
 /// session's environment as a key binding's would — this client is a user
 /// service, whose own environment is systemd's — after asking that its first
@@ -366,12 +399,28 @@ fn run(kind: Kind, verb: Verb, lx: f64, ly: f64, window: Option<MenuWindow>) {
             // window's process, waits for it to exit and starts it again.
             // The reply waits for all of that — up to 15 s when the app
             // will not go (a save prompt), and then it says so.
+            // A failure is told on screen: the menu is gone by then, and a
+            // window that closed and stayed closed (or never closed) would
+            // otherwise look like the click did nothing.
             if let Some(w) = window {
                 let line = format!("restart-app {}", w.id);
-                match ctl::send(&line, Some(std::time::Duration::from_secs(20))) {
-                    Ok(reply) if reply.starts_with("error") => log::warn!("[menu] {line}: {}", reply.trim_end()),
-                    Ok(reply) => log::info!("[menu] {line}: {}", reply.trim_end()),
-                    Err(e) => log::warn!("[menu] {line}: {e}"),
+                let failure = match ctl::send(&line, Some(std::time::Duration::from_secs(20))) {
+                    Ok(reply) if reply.starts_with("error") || reply.trim().is_empty() => {
+                        // The compositor's reply ends in a hint for ccectl
+                        // users (" — `restart-app --force` …"), no use here.
+                        let reason = reply.trim().trim_start_matches("error:").trim();
+                        let reason = reason.split(" — ").next().unwrap_or(reason).trim();
+                        Some(if reason.is_empty() { "the compositor gave no answer".to_string() } else { reason.to_string() })
+                    }
+                    Ok(reply) => {
+                        log::info!("[menu] {line}: {}", reply.trim_end());
+                        None
+                    }
+                    Err(e) => Some(e.to_string()),
+                };
+                if let Some(reason) = failure {
+                    log::warn!("[menu] {line}: {reason}");
+                    notify(&format!("Couldn't restart {}", w.app_id), &reason);
                 }
             }
         }
