@@ -252,13 +252,12 @@ followed by a focus-window, since that press dropped no focus.
   `Verb::Item` comes back to `GridApp::run_menu_verb` as the item action
   rather than running on the menu's thread. It was a `cce-cloud --json`
   popup until 2026-10-14.
-- **One output only, for now.** The menu layer names no output, so the
-  compositor puts every one of these menus on its first output; and the
-  item menu takes `pointer-location`'s LAYOUT px as output px, which agree
-  only on an output at the layout origin. Right on the laptop panel alone;
-  with a second display a menu for a click there opens on the wrong one.
-  The fix is the request naming its output and cce-ui's menu layer binding
-  to it.
+- **Each menu opens on the output it was asked for.** The request names
+  the output the press was on (`output=`), and the item menu reads it from
+  `pointer-location`'s `output= ox= oy=`; `context_menu::set_output` hands
+  it to cce-ui's menu layer, which creates the surface on that output and
+  fits the menu to it. An older compositor sends neither, and the menus
+  fall back to its first output (right on one display only).
 
 One trap, spelled out on `Patch::surface_per_virtual`: pointer events and
 input regions are surface-local px, and for THIS surface that means BUFFER

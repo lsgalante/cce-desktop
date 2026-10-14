@@ -84,7 +84,7 @@ enum Message {
     MenuAction { node: String, action: String },
     /// A right-click on an item, with the pointer's place on the output
     /// (asked of the compositor off the loop): open the item's menu there.
-    OpenItemMenu { x: f64, y: f64, item: desktop_menu::ItemTarget },
+    OpenItemMenu { x: f64, y: f64, output: Option<String>, item: desktop_menu::ItemTarget },
     /// A drop that became a card without pixels to upload (a note, text, a
     /// link): ready to pin.
     AddItem(items::DesktopItem),
@@ -1410,11 +1410,11 @@ impl Application for GridApp {
                 self.menu = desktop_menu::DesktopMenu::open(kind, request);
                 *needs_rebuild = true;
             }
-            Message::OpenItemMenu { x, y, item } => {
+            Message::OpenItemMenu { x, y, output, item } => {
                 // Still pinned: it may have been removed while the pointer
                 // was asked for.
                 if self.items.iter().any(|(i, _)| i.node == item.node) {
-                    self.menu = Some(desktop_menu::DesktopMenu::open_item(x, y, item));
+                    self.menu = Some(desktop_menu::DesktopMenu::open_item(x, y, output, item));
                     *needs_rebuild = true;
                 }
             }
@@ -1854,9 +1854,16 @@ impl Application for GridApp {
             let item = desktop_menu::ItemTarget { node, title: name, entries };
             std::thread::spawn(move || {
                 let reply = ctl::send(&ctl::Request::PointerLocation.to_string(), Some(std::time::Duration::from_secs(2)));
-                match reply.ok().as_deref().and_then(ctl::parse_pointer_location) {
-                    Some((x, y)) => {
-                        let _ = sender.send(Message::OpenItemMenu { x, y, item });
+                let reply = reply.unwrap_or_default();
+                // The output under the pointer and the point on it; an older
+                // compositor sends layout px alone, right on one display.
+                let at = match ctl::parse_pointer_output(&reply) {
+                    Some((name, x, y)) => Some((x, y, Some(name))),
+                    None => ctl::parse_pointer_location(&reply).map(|(x, y)| (x, y, None)),
+                };
+                match at {
+                    Some((x, y, output)) => {
+                        let _ = sender.send(Message::OpenItemMenu { x, y, output, item });
                     }
                     None => log::warn!("[menu] no pointer location; the item menu does not open"),
                 }

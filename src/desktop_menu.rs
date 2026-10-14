@@ -16,7 +16,8 @@
 //!
 //! An item's menu ([`Kind::Item`]) is this client's own from the start: a
 //! right-click on an item lands on this surface. It opens at the pointer
-//! the compositor reports (`pointer-location`, asked off the loop), and a
+//! the compositor reports (`pointer-location`, asked off the loop: the
+//! output under it and the point on it), and a
 //! row it runs comes back as the item action the app already dispatches
 //! (`Verb::Item`, run by the caller rather than [`DesktopMenu::run`]).
 //!
@@ -114,9 +115,10 @@ impl DesktopMenu {
         Some(menu)
     }
 
-    /// Show `item`'s menu at `(x, y)` on the output.
-    pub fn open_item(x: f64, y: f64, item: ItemTarget) -> DesktopMenu {
-        let request = DesktopMenuRequest { x, y, lx: x, ly: y, vx: 0.0, vy: 0.0, window: None };
+    /// Show `item`'s menu at `(x, y)` on `output` (`None`: the compositor's
+    /// choice, with `x`/`y` taken as on it).
+    pub fn open_item(x: f64, y: f64, output: Option<String>, item: ItemTarget) -> DesktopMenu {
+        let request = DesktopMenuRequest { x, y, lx: x, ly: y, vx: 0.0, vy: 0.0, output, window: None };
         let mut menu =
             DesktopMenu { kind: Kind::Item, request, item: Some(item), generation: 0, rows: Vec::new(), on_page: false };
         menu.show_main(None);
@@ -177,7 +179,12 @@ impl DesktopMenu {
         let labels = rows.iter().map(|(l, _)| l.clone()).collect();
         match turned_from {
             Some((x, y)) => context_menu::show_page(x, y, None, labels, headers, NO_TARGET),
-            None => context_menu::show(self.request.x as f32, self.request.y as f32, labels, headers, NO_TARGET),
+            None => {
+                context_menu::show(self.request.x as f32, self.request.y as f32, labels, headers, NO_TARGET);
+                // x/y are on this output; the runner opens the menu there.
+                // A page turn keeps it.
+                context_menu::set_output(self.request.output.clone());
+            }
         }
         if let Some(page_row) = rows.iter().position(|(_, r)| *r == Row::Page) {
             context_menu::set_row_page(page_row);
