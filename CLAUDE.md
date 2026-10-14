@@ -161,8 +161,8 @@ reordered by a drag or grown by a drop while it is open.
 
 **Resize handles.** The compositor's `adjust` status topic (`on`/`off` as
 window-adjust mode — overview, or Super held — comes and goes) is how this
-client learns of it — one of three topics it subscribes to, with `selection`
-and `desktop-menu`, each through `spawn_topic_listener` (a plain std thread
+client learns of it — one of four topics it subscribes to, with `selection`,
+`desktop-menu` and `window-menu`, each through `spawn_topic_listener` (a plain std thread
 on the status socket per topic, reconnecting with backoff): it never holds
 keyboard focus, so it cannot read Super for itself. While on, the item
 UNDER THE POINTER (`hover_item` — the compositor shows its ring on the
@@ -199,7 +199,7 @@ nothing for it. A press on a selected item never reaches this client (the
 compositor takes it as the group grab); a press on an unselected one drops
 the selection there and arrives here as an ordinary drag.
 
-## The background menu (`src/desktop_menu.rs`)
+## The menus (`src/desktop_menu.rs`)
 
 A right-click on the bare desktop misses this surface (the input region is
 the items), so the compositor catches it — and, while this client subscribes
@@ -212,6 +212,13 @@ OUTPUT coordinates, full size and at the output's scale however far the
 camera is zoomed, and takes the keyboard while it is up. With this client
 gone the compositor spawns `cce-desktop-menu` (a `cce-cloud --json` popup)
 instead; keep the two menus' rows in step.
+
+A window's own menu — a right-click on its handle disc in adjust mode, or
+on the window in overview — comes the same way on the `window-menu` topic,
+the request naming the window clicked (`Kind::Window`): the window's name as
+a title, Window Mode, Minimize, Close Window. Its fallback is
+`cce-app-menu`; keep those rows in step too. A mode picked from it is not
+followed by a focus-window, since that press dropped no focus.
 
 - **Two coordinate spaces.** Pointer events on the menu's surface are
   output px; on this surface, patch px. `context_menu::pointer_on_host()`

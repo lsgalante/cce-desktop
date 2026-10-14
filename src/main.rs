@@ -104,9 +104,9 @@ enum Message {
     /// not decode. Matched back by node and kind: the list may have changed
     /// meanwhile.
     ImageDecoded { node: String, kind: Kind, decoded: Option<items::Decoded> },
-    /// The bare desktop was right-clicked (`desktop-menu` status topic): open
-    /// the background menu there.
-    DesktopMenu(ctl::DesktopMenuRequest),
+    /// The bare desktop was right-clicked (`desktop-menu` status topic), or a
+    /// window's handle (`window-menu`): open that menu there.
+    OpenMenu(desktop_menu::Kind, ctl::DesktopMenuRequest),
 }
 
 /// Which corner handle of an item.
@@ -314,7 +314,8 @@ struct GridApp {
     /// The DE-wide pinned carve height (0 = follow) while a `(relief)` value's
     /// `h=` is installed, restored when the key reverts.
     base_height: Option<f32>,
-    /// The background menu, while it may be up (`desktop_menu`).
+    /// The open menu, the background's or a window's, while it may be up
+    /// (`desktop_menu`).
     menu: Option<desktop_menu::DesktopMenu>,
 }
 
@@ -1304,7 +1305,10 @@ impl Application for GridApp {
         // Subscribing is what makes the compositor hand the background
         // right-click here rather than to its fallback script.
         spawn_topic_listener(StatusTopic::DesktopMenu, _sender.clone(), |line| {
-            ctl::DesktopMenuRequest::parse(line).map(Message::DesktopMenu)
+            ctl::DesktopMenuRequest::parse(line).map(|r| Message::OpenMenu(desktop_menu::Kind::Desktop, r))
+        });
+        spawn_topic_listener(StatusTopic::WindowMenu, _sender.clone(), |line| {
+            ctl::DesktopMenuRequest::parse(line).map(|r| Message::OpenMenu(desktop_menu::Kind::Window, r))
         });
         let (board, loaded, edges) = board::Board::open();
         // The board's folder is watched when it is a vault: the board file
@@ -1379,12 +1383,12 @@ impl Application for GridApp {
         // The rest are rare, and each changes more than one item's rect (a
         // new texture, a reordered list, every handle): not worth a rect.
         // The menu paints on a surface of its own: nothing here changes.
-        if !matches!(msg, Message::SelectionMove(_) | Message::DesktopMenu(_)) {
+        if !matches!(msg, Message::SelectionMove(_) | Message::OpenMenu(..)) {
             self.damage = Damage::Full;
         }
         match msg {
-            Message::DesktopMenu(request) => {
-                self.menu = Some(desktop_menu::DesktopMenu::open(request));
+            Message::OpenMenu(kind, request) => {
+                self.menu = desktop_menu::DesktopMenu::open(kind, request);
                 *needs_rebuild = true;
             }
             Message::SelectionMove(moves) => {
@@ -1944,7 +1948,7 @@ impl Application for GridApp {
     ) {
     }
 
-    /// Keys reach this client only while its background menu holds the
+    /// Keys reach this client only while one of its menus holds the
     /// keyboard (its layer surface is exclusive): they walk it. Escape is the
     /// runner's.
     fn handle_key_input(

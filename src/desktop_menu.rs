@@ -1,4 +1,5 @@
-//! The desktop's background menu, drawn in this process.
+//! The desktop's menus, drawn in this process: the background menu and a
+//! window's own menu.
 //!
 //! A right-click on the bare desktop never reaches this client: its surface
 //! takes input over the pinned items alone. The compositor catches it and,
@@ -7,6 +8,11 @@
 //! coordinates, on the desk) and the window that had focus, which the press
 //! drops. Without a subscriber it spawns the `cce-desktop-menu` script
 //! instead, a `cce-cloud --json` popup with the same rows.
+//!
+//! A window's menu — a right-click on its handle disc, or on the window in
+//! overview — comes the same way on the `window-menu` topic, the request
+//! naming the window clicked ([`Kind::Window`]); its fallback is the
+//! `cce-app-menu` script.
 //!
 //! The menu is cce-ui's own (`widget::context_menu`), which the runner hosts
 //! on a layer surface of its own for a grid app (cce-ui
@@ -27,6 +33,23 @@ const NO_TARGET: WidgetId = WidgetId(0);
 /// spells them.
 const MODES: [(&str, &str); 3] = [("Floating", "floating"), ("Tiled", "tiled"), ("Fullscreen", "fullscreen")];
 
+/// Which menu: the bare desktop's, or a window's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Desktop,
+    Window,
+}
+
+/// What a row of the shown page is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Row {
+    /// A title: runs nothing.
+    Header,
+    /// The Window Mode row: turns the menu to its page.
+    Page,
+    Run(Verb),
+}
+
 /// What a row does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verb {
@@ -36,7 +59,8 @@ pub enum Verb {
     Apps,
     Settings,
     Overview,
-    /// Set the named window's mode (`set-mode`), and hand it focus back.
+    /// Set the named window's mode (`set-mode`) — and, from the background
+    /// menu, whose press dropped its focus, hand it focus back.
     Mode(&'static str),
     Minimize,
     Close,
@@ -44,50 +68,74 @@ pub enum Verb {
     Logout,
 }
 
-/// The open menu: the request it answers and what the shown page's rows do
-/// (`None` for the page row, whose press turns the menu rather than runs).
+/// The open menu: which, the request it answers, and what the shown page's
+/// rows are.
 pub struct DesktopMenu {
+    kind: Kind,
     request: DesktopMenuRequest,
     generation: u64,
-    rows: Vec<Option<Verb>>,
+    rows: Vec<Row>,
     on_page: bool,
 }
 
 impl DesktopMenu {
-    /// Show the menu at the request's point.
-    pub fn open(request: DesktopMenuRequest) -> DesktopMenu {
-        let mut menu = DesktopMenu { request, generation: 0, rows: Vec::new(), on_page: false };
+    /// Show the menu at the request's point. A window menu without a window
+    /// (a malformed line) opens nothing.
+    pub fn open(kind: Kind, request: DesktopMenuRequest) -> Option<DesktopMenu> {
+        if kind == Kind::Window && request.window.is_none() {
+            return None;
+        }
+        let mut menu = DesktopMenu { kind, request, generation: 0, rows: Vec::new(), on_page: false };
         menu.show_main(None);
-        menu
+        Some(menu)
     }
 
     /// The main page: at the request's point, or — turned back to from the
     /// mode page — at the corner of the plate it replaces.
     fn show_main(&mut self, turned_from: Option<(f32, f32)>) {
-        let mut rows: Vec<(&str, Option<Verb>)> = vec![
-            ("Terminal", Some(Verb::Terminal)),
-            ("Files", Some(Verb::Files)),
-            ("Data Editor", Some(Verb::DataEditor)),
-            ("Applications", Some(Verb::Apps)),
-            ("System Settings", Some(Verb::Settings)),
-            ("Overview", Some(Verb::Overview)),
+        let window_rows = [
+            ("Window Mode", Row::Page),
+            ("Minimize", Row::Run(Verb::Minimize)),
+            ("Close Window", Row::Run(Verb::Close)),
         ];
-        if self.request.window.is_some() {
-            rows.push(("Window Mode", None));
-            rows.push(("Minimize", Some(Verb::Minimize)));
-            rows.push(("Close Window", Some(Verb::Close)));
+        let mut rows: Vec<(String, Row)> = Vec::new();
+        match (self.kind, self.request.window.as_ref()) {
+            // A window's menu is titled with the window, as cce-app-menu's
+            // popup was, and holds its verbs alone.
+            (Kind::Window, Some(w)) => {
+                rows.push((w.app_id.clone(), Row::Header));
+                rows.extend(window_rows.map(|(l, r)| (l.to_string(), r)));
+            }
+            (Kind::Window, None) => {}
+            (Kind::Desktop, window) => {
+                rows.extend(
+                    [
+                        ("Terminal", Verb::Terminal),
+                        ("Files", Verb::Files),
+                        ("Data Editor", Verb::DataEditor),
+                        ("Applications", Verb::Apps),
+                        ("System Settings", Verb::Settings),
+                        ("Overview", Verb::Overview),
+                    ]
+                    .map(|(l, v)| (l.to_string(), Row::Run(v))),
+                );
+                if window.is_some() {
+                    rows.extend(window_rows.map(|(l, r)| (l.to_string(), r)));
+                }
+                rows.push(("Reload Config".to_string(), Row::Run(Verb::Reload)));
+                rows.push(("Logout".to_string(), Row::Run(Verb::Logout)));
+            }
         }
-        rows.push(("Reload Config", Some(Verb::Reload)));
-        rows.push(("Logout", Some(Verb::Logout)));
-        let labels = rows.iter().map(|(l, _)| l.to_string()).collect();
+        let headers = rows.iter().take_while(|(_, r)| *r == Row::Header).count();
+        let labels = rows.iter().map(|(l, _)| l.clone()).collect();
         match turned_from {
-            Some((x, y)) => context_menu::show_page(x, y, None, labels, 0, NO_TARGET),
-            None => context_menu::show(self.request.x as f32, self.request.y as f32, labels, 0, NO_TARGET),
+            Some((x, y)) => context_menu::show_page(x, y, None, labels, headers, NO_TARGET),
+            None => context_menu::show(self.request.x as f32, self.request.y as f32, labels, headers, NO_TARGET),
         }
-        if let Some(page_row) = rows.iter().position(|(_, v)| v.is_none()) {
+        if let Some(page_row) = rows.iter().position(|(_, r)| *r == Row::Page) {
             context_menu::set_row_page(page_row);
         }
-        self.rows = rows.into_iter().map(|(_, v)| v).collect();
+        self.rows = rows.into_iter().map(|(_, r)| r).collect();
         self.generation = context_menu::generation();
         self.on_page = false;
     }
@@ -101,7 +149,7 @@ impl DesktopMenu {
             .map(|(label, mode)| format!("{}{label}", if window.mode == *mode { MARK_ON } else { MARK_OFF }))
             .collect();
         context_menu::show_page(at.0, at.1, Some(&window.app_id), labels, 0, NO_TARGET);
-        self.rows = MODES.iter().map(|(_, mode)| Some(Verb::Mode(mode))).collect();
+        self.rows = MODES.iter().map(|(_, mode)| Row::Run(Verb::Mode(mode))).collect();
         self.generation = context_menu::generation();
         self.on_page = true;
     }
@@ -141,7 +189,10 @@ impl DesktopMenu {
         let generation = self.generation;
         let verb = context_menu::take_picked()
             .filter(|&(g, _)| g == generation)
-            .and_then(|(_, row)| self.rows.get(row).copied().flatten());
+            .and_then(|(_, row)| match self.rows.get(row) {
+                Some(Row::Run(verb)) => Some(*verb),
+                _ => None,
+            });
         context_menu::hide();
         verb
     }
@@ -162,9 +213,9 @@ impl DesktopMenu {
     /// is a control-socket round trip, and the reply waits on the
     /// compositor's loop.
     pub fn run(&self, verb: Verb) {
-        let (lx, ly) = (self.request.lx, self.request.ly);
+        let (kind, lx, ly) = (self.kind, self.request.lx, self.request.ly);
         let window = self.request.window.clone();
-        std::thread::spawn(move || run(verb, lx, ly, window));
+        std::thread::spawn(move || run(kind, verb, lx, ly, window));
     }
 }
 
@@ -215,7 +266,7 @@ fn terminal() -> String {
     }
 }
 
-fn run(verb: Verb, lx: f64, ly: f64, window: Option<MenuWindow>) {
+fn run(kind: Kind, verb: Verb, lx: f64, ly: f64, window: Option<MenuWindow>) {
     let bin = |name: &str| de_bin(name).display().to_string();
     match verb {
         Verb::Terminal => {
@@ -239,11 +290,14 @@ fn run(verb: Verb, lx: f64, ly: f64, window: Option<MenuWindow>) {
         }
         Verb::Overview => send(Request::Overview),
         Verb::Mode(mode) => {
-            // The press dropped the window's focus for the menu's sake; the
-            // window just acted on is the one to hand it back to.
             if let Some(w) = window {
                 send(Request::SetMode { mode: mode.to_string(), window: Some(w.id.to_string()) });
-                send(Request::FocusWindow { query: w.id.to_string(), wait: false });
+                // A background press dropped the window's focus for the
+                // menu's sake: the window just acted on is the one to hand it
+                // back to. A press on a window's own handle dropped nothing.
+                if kind == Kind::Desktop {
+                    send(Request::FocusWindow { query: w.id.to_string(), wait: false });
+                }
             }
         }
         Verb::Minimize | Verb::Close => {
