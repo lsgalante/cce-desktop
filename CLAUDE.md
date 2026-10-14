@@ -158,12 +158,14 @@ They are the only reason this client takes input at all. `input_regions()`
 returns exactly the item rects (and an empty list when there is no patch), so
 the pointer passes straight through everywhere else. Over an item, left-drag
 moves it — the grab offset is held in VIRTUAL units, so the gesture survives a
-pan or zoom mid-drag — and right-click opens a `cce-cloud --json` menu
-(by kind: Open, Connect to…, Remove…) at `ccectl pointer-location`, whose
-reply comes back as
-`Message::MenuAction { node, action }`. It carries the canvas node id rather
-than an index because that menu blocks on its own thread, and the list can be
-reordered by a drag or grown by a drop while it is open.
+pan or zoom mid-drag — and right-click opens the item's menu (by kind:
+Open, Connect to…, Remove…), in process like the desktop's menus (below,
+`Kind::Item`). The press is in patch px and the menu stands on the output,
+so its place is the compositor's `pointer-location`, asked on a thread
+(`Message::OpenItemMenu`). A row it runs comes back as
+`Message::MenuAction { node, action }`. That carries the canvas node id
+rather than an index, because the list can be reordered by a drag or grown
+by a drop while the menu is open.
 
 **Resize handles.** The compositor's `adjust` status topic (`on`/`off` as
 window-adjust mode — overview, or Super held — comes and goes) is how this
@@ -242,8 +244,18 @@ followed by a focus-window, since that press dropped no focus.
   focus it first. Keys reach this client only while the menu is up:
   Up/Down/Enter walk and run it, Right/Left turn the page; Escape and a
   click elsewhere are the runner's and the compositor's.
-- The item menu (right-click on an item) is still a `cce-cloud --json`
-  popup (`items::item_menu`).
+- An item's menu (above) is the same machinery, `Kind::Item`: no fallback
+  (the press is this client's own), titled with the item, and its rows'
+  `Verb::Item` comes back to `GridApp::run_menu_verb` as the item action
+  rather than running on the menu's thread. It was a `cce-cloud --json`
+  popup until 2026-10-14.
+- **One output only, for now.** The menu layer names no output, so the
+  compositor puts every one of these menus on its first output; and the
+  item menu takes `pointer-location`'s LAYOUT px as output px, which agree
+  only on an output at the layout origin. Right on the laptop panel alone;
+  with a second display a menu for a click there opens on the wrong one.
+  The fix is the request naming its output and cce-ui's menu layer binding
+  to it.
 
 One trap, spelled out on `Patch::surface_per_virtual`: pointer events and
 input regions are surface-local px, and for THIS surface that means BUFFER

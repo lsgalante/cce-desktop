@@ -1,5 +1,5 @@
-//! The desktop's menus, drawn in this process: the background menu and a
-//! window's own menu.
+//! The desktop's menus, drawn in this process: the background menu, a
+//! window's own menu, and a pinned item's.
 //!
 //! A right-click on the bare desktop never reaches this client: its surface
 //! takes input over the pinned items alone. The compositor catches it and,
@@ -13,6 +13,12 @@
 //! overview — comes the same way on the `window-menu` topic, the request
 //! naming the window clicked ([`Kind::Window`]); its fallback is the
 //! `cce-app-menu` script.
+//!
+//! An item's menu ([`Kind::Item`]) is this client's own from the start: a
+//! right-click on an item lands on this surface. It opens at the pointer
+//! the compositor reports (`pointer-location`, asked off the loop), and a
+//! row it runs comes back as the item action the app already dispatches
+//! (`Verb::Item`, run by the caller rather than [`DesktopMenu::run`]).
 //!
 //! The menu is cce-ui's own (`widget::context_menu`), which the runner hosts
 //! on a layer surface of its own for a grid app (cce-ui
@@ -38,6 +44,18 @@ const MODES: [(&str, &str); 3] = [("Floating", "floating"), ("Tiled", "tiled"), 
 pub enum Kind {
     Desktop,
     Window,
+    /// A pinned item's: the [`ItemTarget`] it was opened on.
+    Item,
+}
+
+/// What an item menu is about: the item's canvas node (by id, not index —
+/// the list may change while the menu is up), its name for the title, and
+/// its rows as `(action, label)`.
+#[derive(Clone, Debug)]
+pub struct ItemTarget {
+    pub node: String,
+    pub title: String,
+    pub entries: Vec<(&'static str, &'static str)>,
 }
 
 /// What a row of the shown page is.
@@ -62,6 +80,9 @@ pub enum Verb {
     /// Set the named window's mode (`set-mode`) — and, from the background
     /// menu, whose press dropped its focus, hand it focus back.
     Mode(&'static str),
+    /// An item menu's row: the action the app runs on the item
+    /// (`GridApp::menu_action`).
+    Item(&'static str),
     Minimize,
     Close,
     Reload,
@@ -73,6 +94,7 @@ pub enum Verb {
 pub struct DesktopMenu {
     kind: Kind,
     request: DesktopMenuRequest,
+    item: Option<ItemTarget>,
     generation: u64,
     rows: Vec<Row>,
     on_page: bool,
@@ -85,9 +107,23 @@ impl DesktopMenu {
         if kind == Kind::Window && request.window.is_none() {
             return None;
         }
-        let mut menu = DesktopMenu { kind, request, generation: 0, rows: Vec::new(), on_page: false };
+        let mut menu = DesktopMenu { kind, request, item: None, generation: 0, rows: Vec::new(), on_page: false };
         menu.show_main(None);
         Some(menu)
+    }
+
+    /// Show `item`'s menu at `(x, y)` on the output.
+    pub fn open_item(x: f64, y: f64, item: ItemTarget) -> DesktopMenu {
+        let request = DesktopMenuRequest { x, y, lx: x, ly: y, vx: 0.0, vy: 0.0, window: None };
+        let mut menu =
+            DesktopMenu { kind: Kind::Item, request, item: Some(item), generation: 0, rows: Vec::new(), on_page: false };
+        menu.show_main(None);
+        menu
+    }
+
+    /// The canvas node an item menu was opened on.
+    pub fn item_node(&self) -> Option<&str> {
+        self.item.as_ref().map(|i| i.node.as_str())
     }
 
     /// The main page: at the request's point, or — turned back to from the
@@ -107,6 +143,14 @@ impl DesktopMenu {
                 rows.extend(window_rows.map(|(l, r)| (l.to_string(), r)));
             }
             (Kind::Window, None) => {}
+            // An item's menu is titled with the item, as cce-cloud's popup
+            // was.
+            (Kind::Item, _) => {
+                if let Some(item) = self.item.as_ref() {
+                    rows.push((item.title.clone(), Row::Header));
+                    rows.extend(item.entries.iter().map(|(id, label)| (label.to_string(), Row::Run(Verb::Item(*id)))));
+                }
+            }
             (Kind::Desktop, window) => {
                 rows.extend(
                     [
@@ -307,6 +351,8 @@ fn run(kind: Kind, verb: Verb, lx: f64, ly: f64, window: Option<MenuWindow>) {
                 send(if verb == Verb::Minimize { Request::Minimize } else { Request::Close });
             }
         }
+        // The caller runs an item's action itself (`DesktopMenu` docs).
+        Verb::Item(_) => {}
         Verb::Reload => send(Request::Reload),
         Verb::Logout => send(Request::Exit),
     }

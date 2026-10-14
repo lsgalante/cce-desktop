@@ -78,10 +78,13 @@ enum Message {
         px_w: u32,
         px_h: u32,
     },
-    /// An item's context menu closed on an action. Carries the canvas node
-    /// id rather than an index: the menu is modal on its own thread, and the
-    /// list can be reordered by a drag (or grown by a drop) while it is open.
+    /// An item's context menu ran an action. Carries the canvas node id
+    /// rather than an index: the list can be reordered by a drag (or grown
+    /// by a drop) while the menu is open.
     MenuAction { node: String, action: String },
+    /// A right-click on an item, with the pointer's place on the output
+    /// (asked of the compositor off the loop): open the item's menu there.
+    OpenItemMenu { x: f64, y: f64, item: desktop_menu::ItemTarget },
     /// A drop that became a card without pixels to upload (a note, text, a
     /// link): ready to pin.
     AddItem(items::DesktopItem),
@@ -1168,6 +1171,21 @@ impl GridApp {
         self.save_items();
     }
 
+    /// Run a row the open menu picked: an item's action comes back as the
+    /// message `menu_action` takes; the rest run on the menu's own thread.
+    fn run_menu_verb(&mut self, verb: desktop_menu::Verb) -> Option<Message> {
+        let menu = self.menu.as_ref()?;
+        match verb {
+            desktop_menu::Verb::Item(action) => {
+                Some(Message::MenuAction { node: menu.item_node()?.to_string(), action: action.to_string() })
+            }
+            verb => {
+                menu.run(verb);
+                None
+            }
+        }
+    }
+
     fn menu_action(&mut self, node: &str, action: &str) {
         let Some(index) = self.items.iter().position(|(i, _)| i.node == node) else { return };
         match action {
@@ -1384,13 +1402,21 @@ impl Application for GridApp {
         // The rest are rare, and each changes more than one item's rect (a
         // new texture, a reordered list, every handle): not worth a rect.
         // The menu paints on a surface of its own: nothing here changes.
-        if !matches!(msg, Message::SelectionMove(_) | Message::OpenMenu(..)) {
+        if !matches!(msg, Message::SelectionMove(_) | Message::OpenMenu(..) | Message::OpenItemMenu { .. }) {
             self.damage = Damage::Full;
         }
         match msg {
             Message::OpenMenu(kind, request) => {
                 self.menu = desktop_menu::DesktopMenu::open(kind, request);
                 *needs_rebuild = true;
+            }
+            Message::OpenItemMenu { x, y, item } => {
+                // Still pinned: it may have been removed while the pointer
+                // was asked for.
+                if self.items.iter().any(|(i, _)| i.node == item.node) {
+                    self.menu = Some(desktop_menu::DesktopMenu::open_item(x, y, item));
+                    *needs_rebuild = true;
+                }
             }
             Message::SelectionMove(moves) => {
                 for (id, x, y) in moves {
@@ -1784,10 +1810,9 @@ impl Application for GridApp {
         if context_menu::pointer_on_host() {
             if state == ElementState::Pressed {
                 if let Some(menu) = self.menu.as_mut().filter(|m| m.is_up()) {
-                    if let Some(verb) = menu.press(button, pos.x, pos.y) {
-                        menu.run(verb);
-                    }
+                    let verb = menu.press(button, pos.x, pos.y);
                     *needs_rebuild = true;
+                    return verb.and_then(|v| self.run_menu_verb(v));
                 }
             }
             return None;
@@ -1822,12 +1847,18 @@ impl Application for GridApp {
                 entries.push(("new_note", "New note card"));
             }
             entries.push(("remove", "Remove from Desktop"));
-            // The menu blocks until it is dismissed, so it cannot run on the
-            // loop that has to keep drawing the desktop behind it.
+            // The menu stands on the output (cce-ui's menu layer), and this
+            // press is in patch px: the compositor knows where the pointer
+            // is. Asked off the loop, which must not wait on the compositor.
             let sender = self.sender.clone();
+            let item = desktop_menu::ItemTarget { node, title: name, entries };
             std::thread::spawn(move || {
-                if let Some(action) = items::item_menu(&name, &entries) {
-                    let _ = sender.send(Message::MenuAction { node, action });
+                let reply = ctl::send(&ctl::Request::PointerLocation.to_string(), Some(std::time::Duration::from_secs(2)));
+                match reply.ok().as_deref().and_then(ctl::parse_pointer_location) {
+                    Some((x, y)) => {
+                        let _ = sender.send(Message::OpenItemMenu { x, y, item });
+                    }
+                    None => log::warn!("[menu] no pointer location; the item menu does not open"),
                 }
             });
             return None;
@@ -1979,7 +2010,8 @@ impl Application for GridApp {
             }
             Key::Named(NamedKey::Enter) => {
                 if let Some(verb) = menu.activate_hovered() {
-                    menu.run(verb);
+                    *needs_rebuild = true;
+                    return self.run_menu_verb(verb);
                 }
             }
             _ => return None,
