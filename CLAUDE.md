@@ -214,7 +214,7 @@ true surface coordinates since cce-compositor@feab593; do not reintroduce
 output-scale terms here.
 
 This directory is its own git repository whose `origin` is GitHub; a
-post-commit hook pushes each commit (git.lucas.co mirrors it hourly).
+post-commit hook pushes each commit.
 `cce-grid.service` autostarts it with the session
 (WantedBy=cce-session.target); ccebuild installs both.
 
