@@ -198,6 +198,39 @@ nothing for it. A press on a selected item never reaches this client (the
 compositor takes it as the group grab); a press on an unselected one drops
 the selection there and arrives here as an ordinary drag.
 
+## The background menu (`src/desktop_menu.rs`)
+
+A right-click on the bare desktop misses this surface (the input region is
+the items), so the compositor catches it — and, while this client subscribes
+to the `desktop-menu` status topic, hands it over as a
+`ctl::DesktopMenuRequest`: the press on its output, in layout coordinates
+and on the desk, and the window the press dropped focus from. The menu is
+cce-ui's `context_menu`, which the runner hosts for a grid app on a layer
+surface of its own (cce-ui `backend/menu_layer.rs`) — so it stands in
+OUTPUT coordinates, full size and at the output's scale however far the
+camera is zoomed, and takes the keyboard while it is up. With this client
+gone the compositor spawns `cce-desktop-menu` (a `cce-cloud --json` popup)
+instead; keep the two menus' rows in step.
+
+- **Two coordinate spaces.** Pointer events on the menu's surface are
+  output px; on this surface, patch px. `context_menu::pointer_on_host()`
+  says which, and `handle_pointer_move` / `handle_mouse_input` give the
+  menu's events to the menu alone (read as patch px they would hover and
+  grab whatever item lay at the same numbers).
+- **Rows are the host's** (`take_picked`, no toolkit actions): a `Verb`
+  per row, run on a thread (`DesktopMenu::run`) since each is a
+  control-socket round trip. Launches go through the compositor's `spawn`
+  (`ctl::Request::Spawn`), after a `place-next-cell` at the click, so the
+  app gets the session's environment — this client is a systemd service —
+  and opens on the square that was clicked, as the script's did.
+- **Window Mode** is a page row (`set_row_page`, `show_page`); its picks
+  `set-mode` the named window and hand it focus back, Minimize and Close
+  focus it first. Keys reach this client only while the menu is up:
+  Up/Down/Enter walk and run it, Right/Left turn the page; Escape and a
+  click elsewhere are the runner's and the compositor's.
+- The item menu (right-click on an item) is still a `cce-cloud --json`
+  popup (`items::item_menu`).
+
 One trap, spelled out on `Patch::surface_per_virtual`: pointer events and
 input regions are surface-local px, and for THIS surface that means BUFFER
 px at every output scale — the grid surface is pinned at buffer_scale 1

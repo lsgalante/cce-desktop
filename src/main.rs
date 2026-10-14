@@ -19,9 +19,11 @@ use cce_ui::engine::{Application, LogicalPosition, LogicalSize, WindowSettings};
 use cce_ui::scene::layout::Rect;
 use cce_ui::scene::paint::{Cap, DisplayList, PaintCtx};
 use cce_ui::widget::markdown::{self, Layout as CardLayout, ShapingMeasure, Theme};
+use cce_ui::widget::context_menu;
 use cce_ui::widget::{ElementState, KeyEvent, MouseButton, MouseScrollDelta};
 
 mod board;
+mod desktop_menu;
 mod items;
 
 use board::Edge;
@@ -102,6 +104,9 @@ enum Message {
     /// not decode. Matched back by node and kind: the list may have changed
     /// meanwhile.
     ImageDecoded { node: String, kind: Kind, decoded: Option<items::Decoded> },
+    /// The bare desktop was right-clicked (`desktop-menu` status topic): open
+    /// the background menu there.
+    DesktopMenu(ctl::DesktopMenuRequest),
 }
 
 /// Which corner handle of an item.
@@ -309,6 +314,8 @@ struct GridApp {
     /// The DE-wide pinned carve height (0 = follow) while a `(relief)` value's
     /// `h=` is installed, restored when the key reverts.
     base_height: Option<f32>,
+    /// The background menu, while it may be up (`desktop_menu`).
+    menu: Option<desktop_menu::DesktopMenu>,
 }
 
 impl Patch {
@@ -1294,6 +1301,11 @@ impl Application for GridApp {
             Some(Message::AdjustMode(line == "on"))
         });
         spawn_topic_listener(StatusTopic::Selection, _sender.clone(), parse_selection_line);
+        // Subscribing is what makes the compositor hand the background
+        // right-click here rather than to its fallback script.
+        spawn_topic_listener(StatusTopic::DesktopMenu, _sender.clone(), |line| {
+            ctl::DesktopMenuRequest::parse(line).map(Message::DesktopMenu)
+        });
         let (board, loaded, edges) = board::Board::open();
         // The board's folder is watched when it is a vault: the board file
         // itself (an Obsidian edit, a sync) and the notes cards show.
@@ -1329,6 +1341,7 @@ impl Application for GridApp {
             applied_relief: None,
             base_depth: None,
             base_height: None,
+            menu: None,
         };
         for mut item in loaded {
             app.assign_id(&mut item);
@@ -1365,10 +1378,15 @@ impl Application for GridApp {
         // records the rects it touched, like a drag of this client's own.
         // The rest are rare, and each changes more than one item's rect (a
         // new texture, a reordered list, every handle): not worth a rect.
-        if !matches!(msg, Message::SelectionMove(_)) {
+        // The menu paints on a surface of its own: nothing here changes.
+        if !matches!(msg, Message::SelectionMove(_) | Message::DesktopMenu(_)) {
             self.damage = Damage::Full;
         }
         match msg {
+            Message::DesktopMenu(request) => {
+                self.menu = Some(desktop_menu::DesktopMenu::open(request));
+                *needs_rebuild = true;
+            }
             Message::SelectionMove(moves) => {
                 for (id, x, y) in moves {
                     let Some(index) = self.items.iter().position(|(i, _)| i.id == id) else {
@@ -1629,6 +1647,16 @@ impl Application for GridApp {
     }
 
     fn handle_pointer_move(&mut self, pos: LogicalPosition, needs_rebuild: &mut bool) {
+        // On the menu's own surface the position is on the OUTPUT, not the
+        // patch (cce-ui `context_menu::pointer_on_host`): it is the menu's
+        // alone, and would hover a pinned item that happens to lie at the
+        // same patch px.
+        if context_menu::pointer_on_host() {
+            if self.menu.as_ref().is_some_and(|m| m.is_up()) && context_menu::cursor_moved(pos.x, pos.y) {
+                *needs_rebuild = true;
+            }
+            return;
+        }
         let Some(p) = self.patch else { return };
         if p.scale <= 0.0 {
             return;
@@ -1746,6 +1774,19 @@ impl Application for GridApp {
         pos: LogicalPosition,
         needs_rebuild: &mut bool,
     ) -> Option<Self::Message> {
+        // The menu's surface: its presses run its rows (a release there is
+        // nothing — the menu acts on the press).
+        if context_menu::pointer_on_host() {
+            if state == ElementState::Pressed {
+                if let Some(menu) = self.menu.as_mut().filter(|m| m.is_up()) {
+                    if let Some(verb) = menu.press(button, pos.x, pos.y) {
+                        menu.run(verb);
+                    }
+                    *needs_rebuild = true;
+                }
+            }
+            return None;
+        }
         let p = self.patch?;
         if p.scale <= 0.0 {
             return None;
@@ -1903,11 +1944,42 @@ impl Application for GridApp {
     ) {
     }
 
+    /// Keys reach this client only while its background menu holds the
+    /// keyboard (its layer surface is exclusive): they walk it. Escape is the
+    /// runner's.
     fn handle_key_input(
         &mut self,
-        _event: &KeyEvent,
-        _needs_rebuild: &mut bool,
+        event: &KeyEvent,
+        needs_rebuild: &mut bool,
     ) -> Option<Self::Message> {
+        use cce_ui::widget::{Key, NamedKey};
+        let menu = self.menu.as_mut().filter(|m| m.is_up())?;
+        if event.state != ElementState::Pressed {
+            return None;
+        }
+        match &event.logical_key {
+            Key::Named(NamedKey::ArrowUp) => {
+                context_menu::step_hovered(-1);
+            }
+            Key::Named(NamedKey::ArrowDown) => {
+                context_menu::step_hovered(1);
+            }
+            Key::Named(NamedKey::ArrowRight) => {
+                if let Some(row) = context_menu::hovered_item().filter(|&r| context_menu::leads_to_page(r)) {
+                    menu.turn(context_menu::PageTurn::Into(row));
+                }
+            }
+            Key::Named(NamedKey::ArrowLeft) => {
+                menu.turn(context_menu::PageTurn::Back);
+            }
+            Key::Named(NamedKey::Enter) => {
+                if let Some(verb) = menu.activate_hovered() {
+                    menu.run(verb);
+                }
+            }
+            _ => return None,
+        }
+        *needs_rebuild = true;
         None
     }
 
