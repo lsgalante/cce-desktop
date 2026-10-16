@@ -105,6 +105,9 @@ no vault, `$XDG_DATA_HOME/cce/desktop.canvas`. Obsidian-on-cce milestone 5.
 - **Input:** right-click menus by kind (Open in Notes / Open link, Convert
   to note for a text card, Connect to…, Disconnect, New note card, Remove);
   "Connect to…" is finished by the next press on another item;
+  Disconnect is a page (as Window Mode is, below): one row per connection,
+  named after the item at its other end, plus All Connections when there
+  are several — a press, Right or a side swipe turns to it;
   double-click opens a note in cce-notes (its socket, or a launch — on a
   thread of its own with a deadline, `open_in_notes`: a cce-notes that
   never answered froze the desktop) and a link or file in its default app. Drops: a `.md` file becomes a note

@@ -82,6 +82,9 @@ enum Message {
     /// rather than an index: the list can be reordered by a drag (or grown
     /// by a drop) while the menu is open.
     MenuAction { node: String, action: String },
+    /// One connection picked on an item menu's Disconnect page: the edge, by
+    /// id, removed.
+    Unlink { edge: String },
     /// A right-click on an item, with the pointer's place on the output
     /// (asked of the compositor off the loop): open the item's menu there.
     OpenItemMenu { x: f64, y: f64, output: Option<String>, item: desktop_menu::ItemTarget },
@@ -1179,6 +1182,7 @@ impl GridApp {
             desktop_menu::Verb::Item(action) => {
                 Some(Message::MenuAction { node: menu.item_node()?.to_string(), action: action.to_string() })
             }
+            desktop_menu::Verb::Unlink(index) => Some(Message::Unlink { edge: menu.connection(index)?.to_string() }),
             verb => {
                 menu.run(verb);
                 None
@@ -1191,7 +1195,7 @@ impl GridApp {
         match action {
             "open" => self.activate(index),
             "connect" => self.connecting = Some(node.to_string()),
-            "disconnect" => {
+            desktop_menu::DISCONNECT => {
                 self.edges.retain(|e| e.from != node && e.to != node);
                 self.save_items();
             }
@@ -1433,6 +1437,11 @@ impl Application for GridApp {
             }
             Message::MenuAction { node, action } => {
                 self.menu_action(&node, &action);
+                *needs_rebuild = true;
+            }
+            Message::Unlink { edge } => {
+                self.edges.retain(|e| e.id != edge);
+                self.save_items();
                 *needs_rebuild = true;
             }
             Message::AddItem(mut item) => {
@@ -1840,8 +1849,24 @@ impl Application for GridApp {
                 _ => {}
             }
             entries.push(("connect", "Connect to…"));
-            if self.edges.iter().any(|e| e.from == node || e.to == node) {
-                entries.push(("disconnect", "Disconnect"));
+            // Disconnect is a page of the item's connections, each named
+            // after the item at its other end (and the edge's label).
+            let connections: Vec<(String, String)> = self
+                .edges
+                .iter()
+                .filter(|e| e.from == node || e.to == node)
+                .map(|e| {
+                    let other = if e.from == node { &e.to } else { &e.from };
+                    let name = self.items.iter().find(|(i, _)| &i.node == other).map_or_else(|| other.clone(), |(i, _)| i.name());
+                    let label = match e.label.as_deref().filter(|l| !l.is_empty()) {
+                        Some(l) => format!("{name} ({l})"),
+                        None => name,
+                    };
+                    (e.id.clone(), label)
+                })
+                .collect();
+            if !connections.is_empty() {
+                entries.push((desktop_menu::DISCONNECT, "Disconnect"));
             }
             if self.board.vault.is_some() {
                 entries.push(("new_note", "New note card"));
@@ -1851,7 +1876,7 @@ impl Application for GridApp {
             // press is in patch px: the compositor knows where the pointer
             // is. Asked off the loop, which must not wait on the compositor.
             let sender = self.sender.clone();
-            let item = desktop_menu::ItemTarget { node, title: name, entries };
+            let item = desktop_menu::ItemTarget { node, title: name, entries, connections };
             std::thread::spawn(move || {
                 let reply = ctl::send(&ctl::Request::PointerLocation.to_string(), Some(std::time::Duration::from_secs(2)));
                 let reply = reply.unwrap_or_default();

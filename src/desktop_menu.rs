@@ -20,6 +20,8 @@
 //! output under it and the point on it), and a
 //! row it runs comes back as the item action the app already dispatches
 //! (`Verb::Item`, run by the caller rather than [`DesktopMenu::run`]).
+//! Its Disconnect is a page, as Window Mode is: one row per connection
+//! (`Verb::Unlink`, the caller's too).
 //!
 //! The menu is cce-ui's own (`widget::context_menu`), which the runner hosts
 //! on a layer surface of its own for a grid app (cce-ui
@@ -49,14 +51,20 @@ pub enum Kind {
     Item,
 }
 
+/// The item action whose row is a PAGE rather than a run: Disconnect,
+/// turning to the item's connections one by one (`show_connections`).
+pub const DISCONNECT: &str = "disconnect";
+
 /// What an item menu is about: the item's canvas node (by id, not index —
-/// the list may change while the menu is up), its name for the title, and
-/// its rows as `(action, label)`.
+/// the list may change while the menu is up), its name for the title, its
+/// rows as `(action, label)`, and its connections as `(edge id, label)` for
+/// the Disconnect page.
 #[derive(Clone, Debug)]
 pub struct ItemTarget {
     pub node: String,
     pub title: String,
     pub entries: Vec<(&'static str, &'static str)>,
+    pub connections: Vec<(String, String)>,
 }
 
 /// What a row of the shown page is.
@@ -64,7 +72,8 @@ pub struct ItemTarget {
 enum Row {
     /// A title: runs nothing.
     Header,
-    /// The Window Mode row: turns the menu to its page.
+    /// The row that turns the menu to its page: Window Mode, or an item's
+    /// Disconnect.
     Page,
     Run(Verb),
 }
@@ -84,6 +93,9 @@ pub enum Verb {
     /// An item menu's row: the action the app runs on the item
     /// (`GridApp::menu_action`).
     Item(&'static str),
+    /// The Disconnect page's row for one connection: the index into the
+    /// item's `connections`.
+    Unlink(usize),
     Minimize,
     /// Restart the window's app (`restart-app`): close it, start it again.
     Restart,
@@ -153,7 +165,10 @@ impl DesktopMenu {
             (Kind::Item, _) => {
                 if let Some(item) = self.item.as_ref() {
                     rows.push((item.title.clone(), Row::Header));
-                    rows.extend(item.entries.iter().map(|(id, label)| (label.to_string(), Row::Run(Verb::Item(*id)))));
+                    rows.extend(item.entries.iter().map(|(id, label)| {
+                        let row = if *id == DISCONNECT { Row::Page } else { Row::Run(Verb::Item(*id)) };
+                        (label.to_string(), row)
+                    }));
                 }
             }
             (Kind::Desktop, window) => {
@@ -208,6 +223,29 @@ impl DesktopMenu {
         self.on_page = true;
     }
 
+    /// An item's Disconnect page, its corner where the main plate stood:
+    /// one row per connection, and All Connections when there are several
+    /// (the one Disconnect ran before it was a page), a back band named
+    /// after the item.
+    fn show_connections(&mut self, at: (f32, f32)) {
+        let Some(item) = self.item.as_ref() else { return };
+        let mut labels: Vec<String> = item.connections.iter().map(|(_, label)| label.clone()).collect();
+        let mut rows: Vec<Row> = (0..labels.len()).map(|i| Row::Run(Verb::Unlink(i))).collect();
+        if labels.len() > 1 {
+            labels.push("All Connections".to_string());
+            rows.push(Row::Run(Verb::Item(DISCONNECT)));
+        }
+        context_menu::show_page(at.0, at.1, Some(&item.title), labels, 0, NO_TARGET);
+        self.rows = rows;
+        self.generation = context_menu::generation();
+        self.on_page = true;
+    }
+
+    /// The edge a Disconnect page row names.
+    pub fn connection(&self, index: usize) -> Option<&str> {
+        self.item.as_ref()?.connections.get(index).map(|(edge, _)| edge.as_str())
+    }
+
     /// Whether this menu is the one up: the runner closes it on Escape and
     /// on a click elsewhere without telling the app.
     pub fn is_up(&self) -> bool {
@@ -251,11 +289,13 @@ impl DesktopMenu {
         verb
     }
 
-    /// Turn into the mode page, or back from it; `false` (and nothing done)
-    /// for a turn this menu has not got — Back from the main page, say.
+    /// Turn into the page — an item's connections, else the window modes —
+    /// or back from it; `false` (and nothing done) for a turn this menu has
+    /// not got — Back from the main page, say.
     pub fn turn(&mut self, turn: PageTurn) -> bool {
         let at = (context_menu::x(), context_menu::y());
         match turn {
+            PageTurn::Into(_) if !self.on_page && self.kind == Kind::Item => self.show_connections(at),
             PageTurn::Into(_) if !self.on_page => self.show_modes(at),
             PageTurn::Back if self.on_page => self.show_main(Some(at)),
             _ => return false,
@@ -425,7 +465,7 @@ fn run(kind: Kind, verb: Verb, lx: f64, ly: f64, window: Option<MenuWindow>) {
             }
         }
         // The caller runs an item's action itself (`DesktopMenu` docs).
-        Verb::Item(_) => {}
+        Verb::Item(_) | Verb::Unlink(_) => {}
         Verb::Reload => send(Request::Reload),
         Verb::Logout => send(Request::Exit),
     }
