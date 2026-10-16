@@ -1979,12 +1979,29 @@ impl Application for GridApp {
         None
     }
 
+    /// The wheel is the menu's alone, on the menu's own surface (output px,
+    /// as `handle_pointer_move`): a two-finger side swipe turns its page,
+    /// forward on the Window Mode row and back anywhere on the page, as
+    /// Right/Left do. The desktop itself takes no wheel.
     fn handle_mouse_wheel(
         &mut self,
-        _delta: &MouseScrollDelta,
-        _pos: LogicalPosition,
-        _needs_rebuild: &mut bool,
+        delta: &MouseScrollDelta,
+        pos: LogicalPosition,
+        needs_rebuild: &mut bool,
     ) {
+        // What is left of a swipe that turned the menu is the turn's: the
+        // page it turned into may stand smaller, and the rest of the
+        // gesture must not turn it again.
+        if cce_ui::widget::side_swipe::swallow(delta) || !context_menu::pointer_on_host() {
+            return;
+        }
+        let Some(menu) = self.menu.as_mut().filter(|m| m.is_up()) else { return };
+        if context_menu::mouse_wheel(delta, pos.x, pos.y) {
+            if let Some(turn) = context_menu::take_turn() {
+                menu.turn(turn);
+            }
+            *needs_rebuild = true;
+        }
     }
 
     /// Keys reach this client only while one of its menus holds the

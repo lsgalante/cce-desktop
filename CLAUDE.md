@@ -247,7 +247,10 @@ followed by a focus-window, since that press dropped no focus.
   a refusal (the app would not exit — a save prompt), a missing reply or a
   socket error posts a notification (`notify`, busctl → cce-notifier). Keys reach this client only while the menu is up:
   Up/Down/Enter walk and run it, Right/Left turn the page; Escape and a
-  click elsewhere are the runner's and the compositor's.
+  click elsewhere are the runner's and the compositor's. A two-finger
+  side swipe turns the page too (`handle_mouse_wheel` → cce-ui's
+  `context_menu::mouse_wheel` / `take_turn`, the designer's path): until
+  2026-10-16 the wheel hook was an empty stub, so a swipe did nothing here.
 - An item's menu (above) is the same machinery, `Kind::Item`: no fallback
   (the press is this client's own), titled with the item, and its rows'
   `Verb::Item` comes back to `GridApp::run_menu_verb` as the item action
